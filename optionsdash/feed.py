@@ -362,17 +362,39 @@ class LSEFeed:
         self._flow[sym] = allf
         return allf
 
-    def _pull_flow(self, sym, start, max_pages=10) -> pd.DataFrame:
-        pages, end = [], None
+    def _pull_flow(self, sym, start, max_pages=20) -> pd.DataFrame:
+        """Page forward from `start`, so what we hold is always contiguous from the session open.
+
+        On a busy day the first pull can need more pages than one refresh allows (or hit the
+        rate limit). Whatever arrived is kept, and the next refresh resumes from the last print,
+        so no stretch of the session is skipped.
+        """
+        pages, end, backwards = [], None, False
         for _ in range(max_pages):
-            rows = self.client.options_flow(sym, min_premium=self.flow_min_premium, start=start,
-                                            end=end, order="desc", limit=5000)
+            try:
+                rows = self.client.options_flow(sym, min_premium=self.flow_min_premium, start=start,
+                                                end=end, order="asc", limit=5000)
+            except Exception as e:
+                if pages and getattr(e, "status", None) == 429:
+                    break  # rate limited mid-backfill: keep what we have, resume next refresh
+                raise
             if not rows:
                 break
-            pages.append(normalize_flow(rows, sym))
-            if len(rows) < 5000:
+            page = normalize_flow(rows, sym)
+            pages.append(page)
+            if len(rows) < 5000 or page.empty:
                 break
-            end = pages[-1]["ts"].min().strftime("%Y-%m-%dT%H:%M:%S")
+            if len(pages) == 1:
+                # If the server returns newest-first despite order="asc", page backwards instead.
+                raw = pd.to_datetime(_pick(pd.DataFrame(rows), "ts"), errors="coerce", utc=True)
+                backwards = bool(raw.iloc[0] > raw.iloc[-1])
+            if backwards:
+                end = page["ts"].min().strftime("%Y-%m-%dT%H:%M:%S")
+                continue
+            nxt = page["ts"].max().strftime("%Y-%m-%dT%H:%M:%S")
+            if nxt == start:  # a whole page inside one second: stop rather than loop
+                break
+            start = nxt
         return pd.concat(pages, ignore_index=True) if pages else normalize_flow([], sym)
 
     def intraday(self, symbol) -> pd.DataFrame:
