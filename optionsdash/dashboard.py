@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import time
 import traceback
 from datetime import datetime
@@ -36,19 +37,25 @@ def compute_snapshot(feed, symbol: str, chain: pd.DataFrame | None = None) -> Sn
 
 
 def _sync(fw: go.FigureWidget, fig: go.Figure):
-    """Copy a freshly built figure into a live FigureWidget with minimal flicker."""
-    same = (len(fw.data) == len(fig.data)
-            and all(a.type == b.type for a, b in zip(fw.data, fig.data)))
+    """Copy a freshly built figure into a live FigureWidget with minimal flicker.
+
+    The figure goes over as plain JSON (lists, ISO dates): FigureWidget keeps numpy arrays
+    as-is and then raises "truth value of an array is ambiguous" when the browser echoes
+    changes back.
+    """
+    spec = json.loads(fig.to_json())
+    data, lay = spec.get("data", []), spec.get("layout", {})
+    same = (len(fw.data) == len(data)
+            and all(a.type == b.get("type", "scatter") for a, b in zip(fw.data, data)))
     if not same:
         fw.data = ()
-        fw.add_traces(list(fig.data))
-    lay = fig.layout.to_plotly_json()
+        fw.add_traces(data)
     lay.setdefault("shapes", [])
     lay.setdefault("annotations", [])
     with fw.batch_update():
         if same:
-            for a, b in zip(fw.data, fig.data):
-                a.update(b.to_plotly_json(), overwrite=True)
+            for a, b in zip(fw.data, data):
+                a.update(b, overwrite=True)
         fw.layout.update(lay, overwrite=True)
 
 

@@ -409,42 +409,57 @@ def _fmt(x, f="{:.2f}", na="n/a"):
         return na
 
 
-def kpi_html(s: Snapshot) -> str:
+def kpi_tiles(s: Snapshot) -> list[dict]:
+    """Headline tiles as data: label, value, sub text, plus an optional colored delta."""
     m = s.metrics
     chg = m.get("chg", np.nan)
-    chg_cls = "od-up" if chg >= 0 else "od-dn"
     gex = m["net_gex"]
     flip = m["flip"]
     flip_sub = (f"spot {abs(s.spot / flip - 1) * 100:.2f}% {'above' if s.spot > flip else 'below'}"
                 if flip else "no flip in ±8%")
     em = m.get("em_front", np.nan)
     fe = m.get("front_expiry")
-    tiles = [
-        (f"{s.symbol} spot", _fmt(s.spot), f"<span class='{chg_cls}'>{_fmt(chg * 100, '{:+.2f}%')}</span> vs prev close"),
-        ("Net dealer gamma", _money(gex) + " /1%", "positive gamma: dampening" if gex > 0 else "negative gamma: amplifying"),
-        ("Gamma flip", _fmt(flip, "{:.1f}"), flip_sub),
-        ("Call wall / put wall", f"{_fmt(m['call_wall'], '{:.0f}')} / {_fmt(m['put_wall'], '{:.0f}')}",
-         f"max pain {_fmt(m.get('max_pain'), '{:.0f}')}"),
-        ("ATM IV 30d", _fmt(m["atm_iv_30"] * 100, "{:.1f}"),
-         f"RV20 {_fmt(m['rv20'] * 100, '{:.1f}')} · VRP {_fmt(m['vrp'] * 100, '{:+.1f}')}"),
-        ("Expected move (front)", "±" + _fmt(em),
-         f"±{_fmt(em / s.spot * 100, '{:.2f}')}% · {pd.Timestamp(fe):%b %d}" if fe is not None else ""),
-        ("25Δ risk reversal 30d", _fmt(m["rr25_30"] * 100, "{:+.1f}"), f"butterfly {_fmt(m['fly25_30'] * 100, '{:+.2f}')}"),
-        ("Put / call", _fmt(m["pc_volume"]), f"premium ratio {_fmt(m['pc_premium'])}"),
-        ("Net directional flow", _money(m["net_flow"]),
-         f"Δ {_money(m['net_delta_flow'])} · {m['prints']:,} prints"),
+    tile = lambda label, value, sub="", delta=None, tone=None: dict(
+        label=label, value=value, sub=sub, delta=delta, tone=tone)
+    return [
+        tile(f"{s.symbol} spot", _fmt(s.spot), "vs prev close", _fmt(chg * 100, "{:+.2f}%"),
+             "up" if chg >= 0 else "dn"),
+        tile("Net dealer gamma", _money(gex) + " /1%",
+             "positive gamma: dampening" if gex > 0 else "negative gamma: amplifying"),
+        tile("Gamma flip", _fmt(flip, "{:.1f}"), flip_sub),
+        tile("Call wall / put wall", f"{_fmt(m['call_wall'], '{:.0f}')} / {_fmt(m['put_wall'], '{:.0f}')}",
+             f"max pain {_fmt(m.get('max_pain'), '{:.0f}')}"),
+        tile("ATM IV 30d", _fmt(m["atm_iv_30"] * 100, "{:.1f}"),
+             f"RV20 {_fmt(m['rv20'] * 100, '{:.1f}')} · VRP {_fmt(m['vrp'] * 100, '{:+.1f}')}"),
+        tile("Expected move (front)", "±" + _fmt(em),
+             f"±{_fmt(em / s.spot * 100, '{:.2f}')}% · {pd.Timestamp(fe):%b %d}" if fe is not None else ""),
+        tile("25Δ risk reversal 30d", _fmt(m["rr25_30"] * 100, "{:+.1f}"),
+             f"butterfly {_fmt(m['fly25_30'] * 100, '{:+.2f}')}"),
+        tile("Put / call", _fmt(m["pc_volume"]), f"premium ratio {_fmt(m['pc_premium'])}"),
+        tile("Net directional flow", _money(m["net_flow"]),
+             f"Δ {_money(m['net_delta_flow'])} · {m['prints']:,} prints"),
     ]
-    cells = "".join(f"<div class='od-kpi'><div class='l'>{l}</div><div class='v'>{v}</div>"
-                    f"<div class='s'>{sub}</div></div>" for l, v, sub in tiles)
-    return f"{T.CSS}<div class='od-root od-kpis'>{cells}</div>"
+
+
+def kpi_html(s: Snapshot) -> str:
+    cells = []
+    for t in kpi_tiles(s):
+        delta = f"<span class='od-{t['tone']}'>{t['delta']}</span> " if t["delta"] else ""
+        cells.append(f"<div class='od-kpi'><div class='l'>{t['label']}</div><div class='v'>{t['value']}</div>"
+                     f"<div class='s'>{delta}{t['sub']}</div></div>")
+    return f"{T.CSS}<div class='od-root od-kpis'>{''.join(cells)}</div>"
 
 
 _TAGS = {"bull": "BULLISH", "bear": "BEARISH", "vol": "VOL", "neutral": "STRUCTURE"}
 
 
+def insight_items(s: Snapshot) -> list[tuple[str, str]]:
+    """Market-read lines as (TAG, sentence)."""
+    return [(_TAGS.get(tag, tag.upper()), txt) for tag, txt in s.insights]
+
+
 def insights_html(s: Snapshot) -> str:
-    items = "".join(f"<li><span class='od-tag'>{_TAGS.get(tag, tag.upper())}</span>{txt}</li>"
-                    for tag, txt in s.insights)
+    items = "".join(f"<li><span class='od-tag'>{tag}</span>{txt}</li>" for tag, txt in insight_items(s))
     return (f"{T.CSS}<div class='od-root od-panel'><h4>Market read: {s.symbol}</h4>"
             f"<ul>{items or '<li>Waiting for data</li>'}</ul></div>")
 
@@ -460,10 +475,10 @@ def _table(title: str, df: pd.DataFrame, note: str = "") -> str:
     return f"{T.CSS}<div class='od-root od-panel'><h4>{title}</h4>{body}{note}</div>"
 
 
-def top_prints_html(s: Snapshot, n: int = 15) -> str:
+def top_prints_table(s: Snapshot, n: int = 15):
     f = s.flow
     if f.empty:
-        return _table("Largest prints today", None)
+        return "Largest prints today", None, ""
     top = f.nlargest(n, "premium")
     side = top["side"].map({1.0: "BUY", -1.0: "SELL"}).fillna("?")
     t = pd.DataFrame({
@@ -478,13 +493,13 @@ def top_prints_html(s: Snapshot, n: int = 15) -> str:
         "delta": top["delta"].map(lambda v: _fmt(v, "{:+.2f}")),
     })
     method = "quote rule (vs bid/ask)" if (s.flow["method"] == "quote").mean() > 0.5 else "tick test"
-    return _table("Largest prints today", t, f"Side inferred by {method}. BUY call / SELL put = bullish.")
+    return "Largest prints today", t, f"Side inferred by {method}. BUY call / SELL put = bullish."
 
 
-def unusual_html(s: Snapshot) -> str:
+def unusual_table(s: Snapshot):
     u = s.unusual
     if u is None or u.empty:
-        return _table("Unusual activity", None)
+        return "Unusual activity", None, ""
     basis = u["basis"].iloc[0]
     t = pd.DataFrame({
         "contract": u["strike"].map("{:g}".format) + " " + u["type"].str.upper()
@@ -498,13 +513,13 @@ def unusual_html(s: Snapshot) -> str:
     })
     note = ("Volume far above open interest = new positions being opened today."
             if basis == "vol/OI" else "No OI in feed: ranked by premium vs the chain median.")
-    return _table("Unusual activity", t, note)
+    return "Unusual activity", t, note
 
 
-def term_table_html(s: Snapshot, n: int = 10) -> str:
+def term_table(s: Snapshot, n: int = 10):
     t = s.term.head(n)
     if t.empty:
-        return _table("Expiry summary", None)
+        return "Expiry summary", None, ""
     em = t["em_straddle"].where(np.isfinite(t["em_straddle"]), t["em_iv"])
     d = pd.DataFrame({
         "expiry": pd.to_datetime(t["expiry"]).dt.strftime("%a %b %d"),
@@ -516,7 +531,19 @@ def term_table_html(s: Snapshot, n: int = 10) -> str:
         "exp. move %": (em / s.spot * 100).map(lambda v: _fmt(v, "±{:.2f}%")),
         "volume": t["volume"].map("{:,.0f}".format),
     })
-    return _table("Expiry summary", d)
+    return "Expiry summary", d, ""
+
+
+def top_prints_html(s: Snapshot) -> str:
+    return _table(*top_prints_table(s))
+
+
+def unusual_html(s: Snapshot) -> str:
+    return _table(*unusual_table(s))
+
+
+def term_table_html(s: Snapshot) -> str:
+    return _table(*term_table(s))
 
 
 def _tidy(fn):

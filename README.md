@@ -14,29 +14,43 @@ flowing**. It then writes a short plain-English summary of all of it, and everyt
 
 ---
 
-## Quick start
+## Quick start: run it in your browser (recommended)
 
-1. **Get the code**: `git clone https://github.com/tafall77/Options-flow-dashboard` or **Code → Download ZIP**, then
-   `pip install -r requirements.txt`.
-   Only have the notebook file, or using Google Colab? That works too: the notebook's **Setup** cell downloads the
-   dashboard code and its libraries from GitHub automatically.
-2. **Paste your API key.** Open `Options_Dashboard.ipynb`; the first code cell is:
+![Web app](docs/img/web-app.png)
+
+1. **Get the code**: on GitHub click **Code → Download ZIP** and unzip it (or `git clone https://github.com/tafall77/Options-flow-dashboard`).
+2. **Paste your API key.** Open `run_dashboard.py` in any text editor (Notepad works). Near the top:
    ```python
    LSE_API_KEY = "PASTE_YOUR_LSE_API_KEY_HERE"
    ```
-   To keep the key out of the notebook (and out of git), you can instead set an environment variable before
-   starting Jupyter: `export LSE_API_KEY=lse_live_xxxxxxxxxxxx`.
-3. **Run it**
-   ```bash
-   jupyter lab Options_Dashboard.ipynb        # then Run → Run All Cells
-   ```
-   (Or `pip install git+https://github.com/tafall77/Options-flow-dashboard` and use `from optionsdash import ...`
-   from any notebook.)
+   Put your key between the quotes and save.
+3. **Start it.**
+   - **Windows:** double-click **`Start Dashboard.bat`**.
+   - **Mac:** double-click **`Start Dashboard.command`**.
+   - **Any system:** `pip install -r requirements.txt`, then `python run_dashboard.py`.
 
-With no key, the dashboard runs on synthetic demo data, so you can check it works before connecting.
+   The first start installs the libraries (a few minutes). Then the dashboard opens in your browser at
+   **http://127.0.0.1:8050**. It's a full-screen page: headline numbers across the top, the market read in a side
+   column, charts in tabs (two or three per row, depending on screen width). It refreshes on its own.
+   Close the black terminal window (or press Ctrl+C in it) to stop.
 
-**Controls:** a **SPY / QQQ** toggle, **Pause / Resume**, and a refresh-rate picker (5s to 2min). The notebook stays usable
-while the dashboard runs.
+With no key it runs on synthetic **demo data**, so you can check it works before connecting.
+`python run_dashboard.py --demo` forces demo data; `--port 8060` uses another port.
+
+**Controls:** a **SPY / QQQ** switch, a refresh-rate picker (5s to 2min) and **Pause / Resume**. Zoom into any chart
+(drag a box, double-click to reset); the zoom is kept across refreshes.
+
+## Or: run it in Jupyter
+
+The same dashboard also runs inside a notebook, which is handy if you want to dig into the numbers with your own code.
+
+1. Open `Options_Dashboard.ipynb` in Jupyter (`jupyter lab Options_Dashboard.ipynb`) and paste your key into the first
+   code cell (`LSE_API_KEY = "..."`).
+2. **Run → Run All Cells.** The **Setup** cell installs anything that's missing. If it says so, restart the kernel
+   (**Kernel → Restart Kernel**) and run all cells again.
+
+Only have the notebook file, or using Google Colab? That works too: the Setup cell downloads the dashboard code from
+GitHub. You can also set the key as an environment variable (`LSE_API_KEY`) instead of pasting it into either file.
 
 ---
 
@@ -179,14 +193,18 @@ snap.metrics, snap.term, snap.exposure, snap.chain, snap.flow
 ## Project layout
 
 ```
-Options_Dashboard.ipynb   main entry point: API key cell, setup, launch, how-to-read notes
+run_dashboard.py          web app entry point (API key line at the top)
+Start Dashboard.bat       Windows double-click launcher (installs libraries, starts the web app)
+Start Dashboard.command   Mac double-click launcher
+Options_Dashboard.ipynb   notebook version: API key cell, setup, launch, how-to-read notes
 pyproject.toml            makes optionsdash pip-installable (the notebook's setup cell uses this)
 optionsdash/
   feed.py        LSE data feed (REST chain / flow / candles + WebSocket) and the offline demo feed
   analytics.py   greeks, GEX / vanna / charm, gamma flip, walls, max pain, term structure, skew,
                  expected moves, realized vol, trade-side classification, market read
   charts.py      Plotly charts, headline tiles and tables
-  dashboard.py   live ipywidgets dashboard, refresh loop, static view, HTML export
+  webapp.py      browser dashboard (Dash): layout, live refresh, controls
+  dashboard.py   notebook dashboard (ipywidgets), refresh loop, static view, HTML export
   theme.py       dark theme and colorblind-checked palette
 docs/img/        README screenshots
 ```
