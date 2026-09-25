@@ -97,14 +97,18 @@ def _norm_type(s: pd.Series) -> pd.Series:
     return first.map({"c": "call", "p": "put"})
 
 
-def _time_to_expiry(expiry: pd.Series, now: datetime | None = None):
-    """Days and years until the 4pm New York close on the expiry date."""
+def _days_to_close(expiry: pd.Series, now: datetime | None = None) -> pd.Series:
+    """Days until the 4pm New York close on the expiry date (negative once expired)."""
     now = now or datetime.now(timezone.utc)
     exp = pd.to_datetime(expiry, errors="coerce")
     close = (exp.dt.tz_localize(None).dt.normalize() + pd.Timedelta(hours=16)).dt.tz_localize(
         NY, nonexistent="shift_forward", ambiguous=False)
-    days = (close - pd.Timestamp(now)).dt.total_seconds() / 86400.0
-    days = days.clip(lower=1.0 / 1440)  # never below one minute
+    return (close - pd.Timestamp(now)).dt.total_seconds() / 86400.0
+
+
+def _time_to_expiry(expiry: pd.Series, now: datetime | None = None):
+    """Days and years until expiry, floored at one minute."""
+    days = _days_to_close(expiry, now).clip(lower=1.0 / 1440)
     return days, days / 365.0
 
 
@@ -125,6 +129,8 @@ def normalize_chain(rows, symbol: str, spot_hint: float | None = None) -> pd.Dat
               "volume", "premium_today", "oi", "spot"):
         df[f] = _num(_pick(raw, f))
     df = df.dropna(subset=["type", "strike", "expiry"])
+    # After the 4pm close, today's expiry is settled: it no longer carries gamma or charm.
+    df = df[_days_to_close(df["expiry"]) > 0]
     if df.empty:
         return _empty(CHAIN_COLUMNS)
 
@@ -418,10 +424,11 @@ class DemoFeed:
     def _init_symbol(self, sym, p):
         now = datetime.now(timezone.utc)
         open_ = session_start_utc(now)
-        minutes = int(min(max((now - open_).total_seconds() // 60, 30), 390))
+        end = min(now, open_ + timedelta(hours=6.5))   # regular session only
+        minutes = int(min(max((end - open_).total_seconds() // 60, 30), 390))
         vol_1m = p["rv"] / np.sqrt(252 * 390)
         path = p["spot"] * np.exp(np.cumsum(self.rng.normal(0, vol_1m, minutes)))
-        ts = pd.date_range(end=pd.Timestamp(now).floor("min"), periods=minutes, freq="min")
+        ts = pd.date_range(end=pd.Timestamp(end).floor("min"), periods=minutes, freq="min")
         intraday = pd.DataFrame({"ts": ts, "open": path, "high": path * 1.0004,
                                  "low": path * 0.9996, "close": path, "volume": 1e5})
         days = pd.bdate_range(end=pd.Timestamp(now).normalize() - pd.Timedelta(days=1), periods=140)
@@ -434,8 +441,9 @@ class DemoFeed:
                                 last_flow=ts[0], chain_seed=int(self.rng.integers(1e9)))
 
     def _expiries(self):
-        today = datetime.now(NY).date()
-        out, d = [], today
+        now = datetime.now(NY)
+        today = now.date()
+        out, d = [], today + timedelta(days=1) if now.hour >= 16 else today
         while (d - today).days <= self.max_dte:
             dte = (d - today).days
             if d.weekday() < 5 and (dte <= 10 or d.weekday() == 4):
@@ -451,7 +459,8 @@ class DemoFeed:
 
     def _advance(self, sym):
         st = self._state[sym]
-        now = pd.Timestamp(datetime.now(timezone.utc)).floor("min")
+        now = datetime.now(timezone.utc)
+        now = pd.Timestamp(min(now, session_start_utc(now) + timedelta(hours=6.5))).floor("min")
         bars = st["intraday"]
         last_ts, last_px = bars["ts"].iloc[-1], bars["close"].iloc[-1]
         vol_1m = st["p"]["rv"] / np.sqrt(252 * 390)
@@ -525,7 +534,8 @@ class DemoFeed:
     def flow(self, symbol) -> pd.DataFrame:
         sym = symbol.upper()
         st = self._state[sym]
-        now = pd.Timestamp(datetime.now(timezone.utc))
+        now = datetime.now(timezone.utc)
+        now = pd.Timestamp(min(now, session_start_utc(now) + timedelta(hours=6.5)))
         start = st["last_flow"]
         mins = max((now - start).total_seconds() / 60, 0.2)
         n = min(int(self.rng.poisson(9 * mins)), 4000)
