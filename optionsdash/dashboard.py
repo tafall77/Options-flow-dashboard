@@ -52,6 +52,15 @@ def _sync(fw: go.FigureWidget, fig: go.Figure):
         fw.layout.update(lay, overwrite=True)
 
 
+def _figure_widgets_available() -> bool:
+    """Plotly's FigureWidget needs anywidget (plotly >= 6); without it we fall back to plain charts."""
+    try:
+        go.FigureWidget()
+        return True
+    except ImportError:
+        return False
+
+
 class LiveDashboard:
     def __init__(self, feed, symbols=("SPY", "QQQ"), refresh_seconds: int = 15,
                  chain_refresh_seconds: int = 60):
@@ -103,8 +112,15 @@ class LiveDashboard:
 
         self.kpis = W.HTML()
         self.insights = W.HTML()
-        self.figs = {k: go.FigureWidget(layout=dict(template="optionsdash", height=C.HEIGHT))
-                     for k in C.FIGURES}
+        # Smooth mode updates FigureWidgets in place. Simple mode (anywidget missing) redraws
+        # plain charts inside Output widgets, so the dashboard still works everywhere.
+        self.smooth = _figure_widgets_available()
+        if self.smooth:
+            self.figs = {k: go.FigureWidget(layout=dict(template="optionsdash", height=C.HEIGHT))
+                         for k in C.FIGURES}
+        else:
+            self.figs = {k: W.Output(layout=W.Layout(min_height=f"{C.HEIGHT}px", min_width="0"))
+                         for k in C.FIGURES}
         self.tables = {k: W.HTML() for k in C.TABLES}
         self.tape = W.HTML()
 
@@ -143,12 +159,7 @@ class LiveDashboard:
     def _render(self, snap: Snapshot):
         self.kpis.value = C.kpi_html(snap)
         self.insights.value = C.insights_html(snap)
-        for k, (_, fn) in C.FIGURES.items():
-            try:
-                _sync(self.figs[k], fn(snap))
-            except Exception as e:  # one broken chart must not kill the rest
-                self.last_error = traceback.format_exc()
-                self.figs[k].layout.title = f"{k}: {e}"
+        self._render_figures(snap)
         for k, (_, fn) in C.TABLES.items():
             self.tables[k].value = fn(snap)
         if getattr(self.feed, "live", False) and self.feed.use_websocket:
@@ -167,6 +178,32 @@ class LiveDashboard:
             self.tape.value = C._table(f"Live tape (WebSocket: {self.feed.ws_status})",
                                        t if not tape.empty else None)
 
+    def _render_figures(self, snap: Snapshot):
+        current = C.TABS[self.tabs.selected_index or 0]
+        for k, (tab, fn) in C.FIGURES.items():
+            if not self.smooth and tab != current:
+                continue  # simple mode only redraws the visible tab
+            try:
+                fig = fn(snap)
+                if self.smooth:
+                    _sync(self.figs[k], fig)
+                else:
+                    self._draw(self.figs[k], fig)
+            except Exception as e:  # one broken chart must not kill the rest
+                self.last_error = traceback.format_exc()
+                if self.smooth:
+                    self.figs[k].layout.title = f"{k}: {e}"
+                else:
+                    self.figs[k].outputs = ({"output_type": "stream", "name": "stderr", "text": f"{k}: {e}\n"},)
+
+    @staticmethod
+    def _draw(out, fig: go.Figure):
+        # Set the Output widget's contents directly: `with out: display()` depends on which
+        # cell is executing, which is unreliable from the background refresh loop.
+        data = fig._repr_mimebundle_(include=None, exclude=None,
+                                     config={"responsive": True, "displaylogo": False})
+        out.outputs = ({"output_type": "display_data", "data": data, "metadata": {}},)
+
     # ------------------------------------------------------------------ loop
     async def _loop(self):
         loop = asyncio.get_running_loop()
@@ -184,6 +221,9 @@ class LiveDashboard:
                 kind = "live" if self.feed.live else "demo"
                 label = "LIVE" if self.feed.live else "DEMO DATA — paste your API key to go live"
                 ws = f" · websocket {self.feed.ws_status}" if self.feed.live and self.feed.use_websocket else ""
+                if not self.smooth:
+                    ws += (" · <b>simple chart mode</b>: run <code>%pip install anywidget</code> and restart "
+                           "the kernel for smoother live charts")
                 self._set_status(
                     f"<b>{label}</b> · {sym} updated {datetime.now():%H:%M:%S} "
                     f"({time.time() - t0:.1f}s) · {snap.metrics['contracts']:,} contracts, "
@@ -202,6 +242,11 @@ class LiveDashboard:
     def _on_tab(self, change):
         """Charts in a hidden tab are laid out at a default width; re-measure when shown."""
         tab = C.TABS[change["new"]]
+        if not self.smooth:
+            snap = self.snapshots.get(self.symbol)
+            if snap is not None:
+                self._render_figures(snap)
+            return
         for k, (t, _) in C.FIGURES.items():
             if t == tab:
                 fw = self.figs[k]

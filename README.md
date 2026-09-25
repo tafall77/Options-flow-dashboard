@@ -132,6 +132,15 @@ this tab.
 
 ---
 
+## Troubleshooting
+
+| Message | Fix |
+|---|---|
+| `No module named 'optionsdash'` | Open the notebook from inside the repo folder, or just run the **Setup** cell: it downloads the code from GitHub |
+| `Please install anywidget to use the FigureWidget class` / status bar says **simple chart mode** | Run `pip install -r requirements.txt` (or re-run the Setup cell), then **Kernel → Restart Kernel** and run all cells. In simple mode the dashboard still works; charts are just redrawn instead of updated in place |
+| Setup cell says *"Installed. Now restart the kernel"* | Libraries were installed after plotly was already loaded: restart the kernel and run all cells |
+| Status bar shows **update failed** | The error text is shown there; `dash.last_error` has the full traceback (e.g. a wrong API key) |
+
 ## Extras
 
 ```python
