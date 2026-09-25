@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "optionsdash"
+version = "0.1.0"
+description = "Live SPY / QQQ options quant dashboard on London Strategic Edge data"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "lse-data>=0.14",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "plotly>=5.20",
+    "ipywidgets>=8.0",
+    "anywidget>=0.9",
+]
+
+[tool.setuptools]
+packages = ["optionsdash"]

@@ -1,3 +1,17 @@
+Metadata-Version: 2.4
+Name: optionsdash
+Version: 0.1.0
+Summary: Live SPY / QQQ options quant dashboard on London Strategic Edge data
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: lse-data>=0.14
+Requires-Dist: pandas>=2.0
+Requires-Dist: numpy>=1.24
+Requires-Dist: scipy>=1.10
+Requires-Dist: plotly>=5.20
+Requires-Dist: ipywidgets>=8.0
+Requires-Dist: anywidget>=0.9
+
 # Options Flow Dashboard: SPY & QQQ
 
 A **live options analytics dashboard** for SPY and QQQ that runs inside a Jupyter notebook, using the
@@ -16,10 +30,10 @@ flowing**. It then writes a short plain-English summary of all of it, and everyt
 
 ## Quick start
 
-1. **Get the code**: `git clone https://github.com/tafall77/Options-flow-dashboard` or **Code → Download ZIP**, then
-   `pip install -r requirements.txt`.
-   Only have the notebook file, or using Google Colab? That works too: the notebook's **Setup** cell downloads the
-   dashboard code and its libraries from GitHub automatically.
+1. **Install**
+   ```bash
+   pip install -r requirements.txt
+   ```
 2. **Paste your API key.** Open `Options_Dashboard.ipynb`; the first code cell is:
    ```python
    LSE_API_KEY = "PASTE_YOUR_LSE_API_KEY_HERE"
@@ -30,8 +44,6 @@ flowing**. It then writes a short plain-English summary of all of it, and everyt
    ```bash
    jupyter lab Options_Dashboard.ipynb        # then Run → Run All Cells
    ```
-   (Or `pip install git+https://github.com/tafall77/Options-flow-dashboard` and use `from optionsdash import ...`
-   from any notebook.)
 
 With no key, the dashboard runs on synthetic demo data, so you can check it works before connecting.
 
@@ -170,8 +182,7 @@ snap.metrics, snap.term, snap.exposure, snap.chain, snap.flow
 ## Project layout
 
 ```
-Options_Dashboard.ipynb   main entry point: API key cell, setup, launch, how-to-read notes
-pyproject.toml            makes optionsdash pip-installable (the notebook's setup cell uses this)
+Options_Dashboard.ipynb   main entry point: API key cell, launch, how-to-read notes
 optionsdash/
   feed.py        LSE data feed (REST chain / flow / candles + WebSocket) and the offline demo feed
   analytics.py   greeks, GEX / vanna / charm, gamma flip, walls, max pain, term structure, skew,
